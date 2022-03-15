@@ -8,20 +8,35 @@
 
 plugins {
     // Apply the org.jetbrains.kotlin.jvm Plugin to add support for Kotlin.
-    id("org.jetbrains.kotlin.jvm") version "1.4.31"
+    id("org.jetbrains.kotlin.jvm") version "1.5.31"
+    id("org.jetbrains.dokka") version "1.5.31"
 
     // Apply the java-library plugin for API and implementation separation.
     `java-library`
+    `maven-publish`
+    signing
 }
+
+group = "org.hravemzdy.pzoroptimula"
+version = "0.0.1"
 
 repositories {
     // Use Maven Central for resolving dependencies.
     mavenCentral()
 }
 
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+val spek_version = "2.0.17"
+
+
 dependencies {
     // Align versions of all Kotlin components
     implementation(platform("org.jetbrains.kotlin:kotlin-bom"))
+    implementation("org.jetbrains.kotlin:kotlin-reflect:1.5.31")
 
     // Use the Kotlin JDK 8 standard library.
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
@@ -31,10 +46,122 @@ dependencies {
 
     // Use the Kotlin test library.
     testImplementation("org.jetbrains.kotlin:kotlin-test")
-
-    // Use the Kotlin JUnit integration.
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
+    testImplementation("org.spekframework.spek2:spek-dsl-jvm:$spek_version")
+    testImplementation("org.spekframework.spek2:spek-runner-junit5:$spek_version")
 
     // This dependency is exported to consumers, that is to say found on their compile classpath.
     api("org.apache.commons:commons-math3:3.6.1")
+
+    // Reflections library https://github.com/ronmamo/reflections
+    api("org.reflections:reflections:0.9.12")
+
+    // legalios library
+    api("org.hravemzdy.legalios:kotlin-legalios:0.22.2")
+    api("org.hravemzdy.procezor:kotlin-procezor:0.22.1")
+
+    implementation("com.michael-bull.kotlin-result:kotlin-result:1.1.12")
+
+    dokkaJavadocPlugin("org.jetbrains.dokka:kotlin-as-java-plugin:1.5.31")
 }
+
+tasks.dokkaJavadoc.configure {
+    outputDirectory.set(buildDir.resolve("dokkaJavadoc"))
+}
+
+val sourcesJar by tasks.registering(Jar::class) {
+    classifier = "sources"
+    from(sourceSets.main.get().allSource)
+}
+
+val javadocJar by tasks.registering(Jar::class) {
+    classifier = "javadoc"
+    from(tasks.dokkaJavadoc.get().outputDirectory)
+    dependsOn(tasks.dokkaJavadoc)
+}
+
+tasks.jar {
+    archiveBaseName.set("kotlin-pzoroptimula")
+
+    manifest {
+        attributes(mapOf("Implementation-Title" to rootProject.name,
+            "Implementation-Version" to project.version))
+    }
+}
+
+// setup the test task
+tasks.test {
+    useJUnitPlatform {
+        includeEngines("spek2")
+    }
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("maven-kotlin") {
+            artifactId = "kotlin-pzoroptimula"
+
+            from(components["kotlin"])
+            artifact(sourcesJar)
+            artifact(javadocJar)
+            versionMapping {
+                usage("java-api") {
+                    fromResolutionOf("runtimeClasspath")
+                }
+                usage("java-runtime") {
+                    fromResolutionResult()
+                }
+            }
+            pom {
+                name.set("kotlin-pzoroptimula")
+                description.set("payroll-pzoroptimula Salary, Health, Social, Taxing Properties for years 2011-2022")
+                url.set("https://mzdyhrave.github.io/payrolldocs/")
+                properties.set(mapOf(
+                    "pzoroptimula.year.min" to "2011",
+                    "pzoroptimula.year.max" to "2022",
+                    "pzoroptimula.country" to "CZ-cz"
+                ))
+                licenses {
+                    license {
+                        name.set("The Unlicense")
+                        url.set("https://unlicense.org")
+                    }
+                }
+                developers {
+                    developer {
+                        id.set("ladislavlisy")
+                        name.set("Ladislav Lisy")
+                        email.set("info@hravemzdy.org")
+                    }
+                }
+                scm {
+                    connection.set("scm:git:git@github.com:mzdyhrave/pzoroptimulakotlin.git")
+                    developerConnection.set("scm:git:git@github.com:mzdyhrave/pzoroptimulakotlin.git")
+                    url.set("https://mzdyhrave.github.io/payrolldocs/")
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            // change URLs to point to your repos, e.g. http://my.org/repo
+            //val releasesRepoUrl = uri(layout.buildDirectory.dir("repos/releases"))
+            val releasesRepoUrl = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
+            //val snapshotsRepoUrl = uri(layout.buildDirectory.dir("repos/snapshots"))
+            val snapshotsRepoUrl = uri("https://s01.oss.sonatype.org/content/repositories/snapshots/")
+            url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
+            authentication {
+                credentials {
+                    username = findProperty("ossrhUsername") as String?
+                    password = findProperty("ossrhPassword") as String?
+                }
+            }
+        }
+    }
+}
+
+signing {
+    useGpgCmd()
+    sign(publishing.publications["maven-kotlin"])
+}
+
